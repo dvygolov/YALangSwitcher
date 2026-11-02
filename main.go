@@ -26,7 +26,6 @@ const (
 	umTrayIcon     = win.WM_APP + 1
 	umSwitch       = win.WM_APP + 2
 	umSync         = win.WM_APP + 3
-	umUpdateBusy   = win.WM_APP + 10
 	umUpdateReady  = win.WM_APP + 11
 	umUpdateFailed = win.WM_APP + 12
 
@@ -104,8 +103,14 @@ func main() {
 	}
 
 	cfg, firstRun := loadConfig()
+	if hasArg(os.Args[1:], "--first-run") {
+		firstRun = true
+	}
 	logf("start: %s %s (elevated=%v, pid=%d, exe=%s)",
 		appName, version, win.IsElevated(), os.Getpid(), win.ExePath())
+	logf("config: mode=%s fallback=%s en=%s ru=%s autostart=%v admin=%v",
+		cfg.Mode, cfg.FallbackHotkey, cfg.EnglishLayout, cfg.RussianLayout,
+		cfg.Autostart, cfg.AdminMode)
 
 	if win.FindWindow(windowClass) != 0 {
 		logf("start: another instance already owns the window")
@@ -117,7 +122,11 @@ func main() {
 	// starts it silently; a manual start asks for UAC once.
 	if cfg.AdminMode && !win.IsElevated() {
 		exe := win.ExePath()
-		if exe != "" && win.ShellExecute("runas", exe, "", filepath.Dir(exe), win.SW_SHOWNORMAL) {
+		params := ""
+		if firstRun {
+			params = "--first-run"
+		}
+		if exe != "" && win.ShellExecute("runas", exe, params, filepath.Dir(exe), win.SW_SHOWNORMAL) {
 			logf("start: relaunching with administrator rights")
 			return
 		}
@@ -133,6 +142,15 @@ func main() {
 	app := &App{cfg: cfg, firstRun: firstRun, instanceMutex: mutex}
 	app.run()
 	closeLog()
+}
+
+func hasArg(args []string, name string) bool {
+	for _, a := range args {
+		if strings.EqualFold(a, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // claimInstance takes the single instance slot. It waits briefly because a
@@ -245,9 +263,6 @@ func (a *App) wndProc(hwnd win.HWND, msg uint32, wp, lp uintptr) uintptr {
 			win.KillTimer(hwnd, timerUpdate)
 			go a.checkUpdates(false)
 		}
-		return 0
-
-	case umUpdateBusy:
 		return 0
 
 	case umUpdateFailed:

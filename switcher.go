@@ -181,14 +181,15 @@ func (a *App) activate(l Lang) {
 		logf("switch: no foreground window")
 		return
 	}
-	if langOf(win.WindowLayout(fg)) == l {
+	from := langOf(win.WindowLayout(fg))
+	if from == l {
 		a.syncTray()
 		return
 	}
 	if !win.PostLayoutChange(fg, hkl) {
 		logf("switch: PostMessage(WM_INPUTLANGCHANGEREQUEST) failed")
 	}
-	logf("switch: %s -> %s (hkl %#x)", langOf(win.WindowLayout(fg)), l, hkl)
+	logf("switch: %s -> %s (hkl %#x)", from, l, hkl)
 	go a.verifyLayout(l, hkl)
 }
 
