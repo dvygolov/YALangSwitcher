@@ -1,0 +1,88 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the version is derived from the commit count, so the full history
+          # is required
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Install go-winres
+        run: |
+          go install github.com/tc-hib/go-winres@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: gofmt
+        run: |
+          files=$(gofmt -l . | grep -v '^$' || true)
+          if [ -n "$files" ]; then
+            echo "not gofmt-clean:"; echo "$files"; exit 1
+          fi
+
+      # -unsafeptr is off: Win32 callbacks legitimately pass message payloads as
+      # uintptr and the analyzer cannot tell them from real misuse.
+      - name: Vet (windows target)
+        run: GOOS=windows GOARCH=amd64 go vet -unsafeptr=false ./...
+
+      # main builds a patch version per commit, tags keep their own version.
+      - name: Resolve version
+        id: v
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.$(git rev-list --count HEAD).0"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "building $VERSION (tag v$VERSION)"
+
+      - name: Build
+        run: make build VERSION="${{ steps.v.outputs.version }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: yalangswitcher-windows-amd64
+          path: build/YALangSwitcher.exe
+          if-no-files-found: error
+
+      # Every push to main publishes a normal (not draft, not prerelease)
+      # release: /releases/latest ignores both, and the app's self-update
+      # reads exactly that endpoint.
+      - name: Release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p dist
+          cp build/YALangSwitcher.exe dist/YALangSwitcher.exe
+          TAG="${{ steps.v.outputs.tag }}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/YALangSwitcher.exe --clobber
+          else
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "YALangSwitcher ${{ steps.v.outputs.version }}" \
+              --generate-notes \
+              dist/YALangSwitcher.exe
+          fi
+          echo "released $TAG"
