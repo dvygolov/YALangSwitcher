@@ -60,14 +60,19 @@ func regSetDword(h HKEY, name string, value uint32) bool {
 	return r == 0
 }
 
-// SetRunValue writes an autostart entry for the current user.
-func SetRunValue(name, exePath string) bool {
+// SetRunValue writes an autostart entry for the current user. args is appended
+// to the quoted exe path, e.g. "--start-task".
+func SetRunValue(name, exePath, args string) bool {
 	h := regCreate(runKeyPath)
 	if h == 0 {
 		return false
 	}
 	defer regClose(h)
-	return regSetString(h, name, `"`+exePath+`"`)
+	value := `"` + exePath + `"`
+	if args != "" {
+		value += " " + args
+	}
+	return regSetString(h, name, value)
 }
 
 func DeleteRunValue(name string) {

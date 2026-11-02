@@ -102,6 +102,22 @@ func main() {
 		}
 	}
 
+	// Autostart entry: the Run key only asks Task Scheduler to start the real,
+	// elevated instance, so logon never shows a UAC prompt.
+	if hasArg(os.Args[1:], "--start-task") {
+		if win.FindWindow(windowClass) != 0 {
+			return // already running
+		}
+		if err := startLogonTask(); err != nil {
+			logf("autostart: %v, elevating directly", err)
+			exe := win.ExePath()
+			if exe != "" {
+				win.ShellExecute("runas", exe, "", filepath.Dir(exe), win.SW_SHOWNORMAL)
+			}
+		}
+		return
+	}
+
 	cfg, firstRun := loadConfig()
 	if hasArg(os.Args[1:], "--first-run") {
 		firstRun = true
